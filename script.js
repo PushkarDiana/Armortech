@@ -290,7 +290,10 @@ function closeBookingModal() {
 
 // --- Отправка формы с подробным списком услуг в Telegram ---
 async function handleBookingSubmit(event) {
-  event.preventDefault();
+  // Защита от ошибок event на мобильных устройствах
+  if (event && typeof event.preventDefault === "function") {
+    event.preventDefault();
+  }
 
   const nameInput = document.getElementById("userNameInput");
   const phoneInput = document.getElementById("userPhoneInput");
@@ -302,15 +305,20 @@ async function handleBookingSubmit(event) {
   let isValid = true;
 
   // Валидация имени (не менее 2 символов)
-  if (!nameInput || nameInput.value.trim().length < 2) {
+  const nameValue = nameInput ? nameInput.value.trim() : "";
+  if (nameValue.length < 2) {
     if (nameError) nameError.classList.remove("hidden");
     isValid = false;
   } else {
     if (nameError) nameError.classList.add("hidden");
   }
 
-  // Валидация телефона (ровно 11 цифр)
-  const digitsOnly = phoneInput ? phoneInput.value.replace(/\D/g, "") : "";
+  // Валидация телефона (адаптировано для автозаполнения на мобайле)
+  let digitsOnly = phoneInput ? phoneInput.value.replace(/\D/g, "") : "";
+  if (digitsOnly.length === 10) {
+    digitsOnly = "7" + digitsOnly;
+  }
+
   if (digitsOnly.length < 11) {
     if (phoneError) phoneError.classList.remove("hidden");
     isValid = false;
@@ -326,19 +334,22 @@ async function handleBookingSubmit(event) {
 
   // Формируем красивый список услуг
   let servicesDetails = "";
-  if (selectedServicesList.length > 0) {
+  if (typeof selectedServicesList !== "undefined" && selectedServicesList.length > 0) {
     servicesDetails = "\n📋 <b>Выбранные услуги в калькуляторе:</b>\n" + 
       selectedServicesList.map((service) => `  • ${service}`).join("\n");
   }
 
+  const carType = typeof selectedCarType !== "undefined" ? selectedCarType : "Не выбран";
+  const serviceName = typeof selectedServiceName !== "undefined" ? selectedServiceName : "Консультация";
+
   const message = `
 🔥 <b>Новая заявка ArmorTech!</b>
 
-👤 <b>Имя:</b> ${nameInput.value.trim()}
+👤 <b>Имя:</b> ${nameValue}
 📞 <b>Телефон:</b> ${phoneInput.value.trim()}
 🚘 <b>Марка/Модель:</b> ${carInput && carInput.value.trim() ? carInput.value.trim() : "Не указана"}
-🚙 <b>Тип кузова:</b> ${selectedCarType}
-🛠 <b>Запрос/Смета:</b> ${selectedServiceName}${servicesDetails}
+🚙 <b>Тип кузова:</b> ${carType}
+🛠 <b>Запрос/Смета:</b> ${serviceName}${servicesDetails}
 📅 <b>Дата:</b> ${new Date().toLocaleString("ru-RU")}
   `;
 
@@ -350,17 +361,36 @@ async function handleBookingSubmit(event) {
   }
 
   try {
-    const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: CHAT_ID,
-        text: message,
-        parse_mode: "HTML"
-      })
+    const payload = JSON.stringify({
+      chat_id: CHAT_ID,
+      text: message,
+      parse_mode: "HTML"
     });
 
-    if (response.ok) {
+    let response = null;
+
+    // 1. Попытка прямой отправки
+    try {
+      response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payload
+      });
+    } catch (e) {
+      console.warn("Прямой запрос заблокирован сетью/браузером, пробуем резервный канал...");
+    }
+
+    // 2. Если прямой запрос заблокирован на смартфоне, отправляем через резервный CORS-прокси
+    if (!response || !response.ok) {
+      const proxyUrl = "https://corsproxy.io/?" + encodeURIComponent(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`);
+      response = await fetch(proxyUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payload
+      });
+    }
+
+    if (response && response.ok) {
       closeBookingModal();
 
       // Показ уведомления об успехе
@@ -372,14 +402,18 @@ async function handleBookingSubmit(event) {
         }, 4000);
       }
 
-      event.target.reset();
-      selectedServicesList = []; // Очищаем список после успешной отправки
+      if (event && event.target && typeof event.target.reset === "function") {
+        event.target.reset();
+      }
+      if (typeof selectedServicesList !== "undefined") {
+        selectedServicesList = []; // Очищаем список после успешной отправки
+      }
     } else {
       alert("Не удалось отправить заявку. Попробуйте еще раз или свяжитесь с нами по телефону.");
     }
   } catch (error) {
     console.error("Ошибка при отправке в Telegram:", error);
-    alert("Произошла ошибка сети. Проверьте подключение к интернету.");
+    alert("Произошла ошибка при отправке. Пожалуйста, свяжитесь с нами по телефону.");
   } finally {
     if (submitBtn) {
       submitBtn.disabled = false;
