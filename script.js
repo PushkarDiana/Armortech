@@ -290,7 +290,6 @@ function closeBookingModal() {
 
 // --- Отправка формы с подробным списком услуг в Telegram ---
 async function handleBookingSubmit(event) {
-  // Защита от ошибок event на мобильных устройствах
   if (event && typeof event.preventDefault === "function") {
     event.preventDefault();
   }
@@ -304,7 +303,7 @@ async function handleBookingSubmit(event) {
 
   let isValid = true;
 
-  // Валидация имени (не менее 2 символов)
+  // 1. Проверка имени
   const nameValue = nameInput ? nameInput.value.trim() : "";
   if (nameValue.length < 2) {
     if (nameError) nameError.classList.remove("hidden");
@@ -313,7 +312,7 @@ async function handleBookingSubmit(event) {
     if (nameError) nameError.classList.add("hidden");
   }
 
-  // Валидация телефона (адаптировано для автозаполнения на мобайле)
+  // 2. Проверка телефона (адаптация к автозаполнению на смартфонах)
   let digitsOnly = phoneInput ? phoneInput.value.replace(/\D/g, "") : "";
   if (digitsOnly.length === 10) {
     digitsOnly = "7" + digitsOnly;
@@ -328,11 +327,10 @@ async function handleBookingSubmit(event) {
 
   if (!isValid) return;
 
-  // Настройки Telegram API
+  // Данные для отправки
   const BOT_TOKEN = "8842734031:AAGdjjtfA3elq4f2NHmojkjSoRwAUAly15I";
   const CHAT_ID = "5213680806";
 
-  // Формируем красивый список услуг
   let servicesDetails = "";
   if (typeof selectedServicesList !== "undefined" && selectedServicesList.length > 0) {
     servicesDetails = "\n📋 <b>Выбранные услуги в калькуляторе:</b>\n" + 
@@ -353,8 +351,8 @@ async function handleBookingSubmit(event) {
 📅 <b>Дата:</b> ${new Date().toLocaleString("ru-RU")}
   `;
 
-  // Состояние загрузки кнопки
-  const originalText = submitBtn ? submitBtn.innerHTML : "";
+  // Индикация загрузки
+  const originalText = submitBtn ? submitBtn.innerHTML : "Подтвердить запись";
   if (submitBtn) {
     submitBtn.disabled = true;
     submitBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>Отправка...</span>`;
@@ -369,7 +367,7 @@ async function handleBookingSubmit(event) {
 
     let response = null;
 
-    // 1. Попытка прямой отправки
+    // Попытка 1: Прямая отправка в Telegram
     try {
       response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
         method: "POST",
@@ -377,10 +375,10 @@ async function handleBookingSubmit(event) {
         body: payload
       });
     } catch (e) {
-      console.warn("Прямой запрос заблокирован сетью/браузером, пробуем резервный канал...");
+      console.warn("Прямой запрос перехвачен защитой смартфона/оператора. Подключаем прокси...");
     }
 
-    // 2. Если прямой запрос заблокирован на смартфоне, отправляем через резервный CORS-прокси
+    // Попытка 2: Резервная отправка через CORS-прокси (для мобильного интернета и мобильных браузеров)
     if (!response || !response.ok) {
       const proxyUrl = "https://corsproxy.io/?" + encodeURIComponent(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`);
       response = await fetch(proxyUrl, {
@@ -393,7 +391,6 @@ async function handleBookingSubmit(event) {
     if (response && response.ok) {
       closeBookingModal();
 
-      // Показ уведомления об успехе
       const toast = document.getElementById("successToast");
       if (toast) {
         toast.classList.remove("hidden");
@@ -402,18 +399,18 @@ async function handleBookingSubmit(event) {
         }, 4000);
       }
 
-      if (event && event.target && typeof event.target.reset === "function") {
-        event.target.reset();
-      }
+      const formElement = document.getElementById("bookingForm");
+      if (formElement) formElement.reset();
+      
       if (typeof selectedServicesList !== "undefined") {
-        selectedServicesList = []; // Очищаем список после успешной отправки
+        selectedServicesList = [];
       }
     } else {
-      alert("Не удалось отправить заявку. Попробуйте еще раз или свяжитесь с нами по телефону.");
+      alert("Не удалось отправить заявку. Свяжитесь с нами по телефону.");
     }
   } catch (error) {
-    console.error("Ошибка при отправке в Telegram:", error);
-    alert("Произошла ошибка при отправке. Пожалуйста, свяжитесь с нами по телефону.");
+    console.error("Ошибка при отправке:", error);
+    alert("Произошла ошибка сети. Попробуйте еще раз.");
   } finally {
     if (submitBtn) {
       submitBtn.disabled = false;

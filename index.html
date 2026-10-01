@@ -733,7 +733,8 @@
                     Консультация</p>
             </div>
 
-            <form id="bookingForm" onsubmit="handleBookingSubmit(event)" class="space-y-4" novalidate>
+            <!-- Добавлено ; return false; в onsubmit -->
+            <form id="bookingForm" onsubmit="handleBookingSubmit(event); return false;" class="space-y-4" novalidate>
                 <div>
                     <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Ваше имя *</label>
                     <input type="text" id="userNameInput" required minlength="2" maxlength="50" placeholder="Александр"
@@ -756,7 +757,8 @@
                         class="w-full bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-tiptop-gold transition-colors">
                 </div>
 
-                <button type="submit"
+                <!-- Добавлен id="submitBookingBtn" -->
+                <button type="submit" id="submitBookingBtn"
                     class="w-full bg-tiptop-gold hover:bg-tiptop-goldDark text-black font-extrabold text-sm uppercase py-4 rounded-xl transition-all shadow-lg shadow-yellow-500/20 mt-2">
                     Подтвердить запись
                 </button>
