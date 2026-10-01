@@ -290,7 +290,7 @@ function closeBookingModal() {
 
 // --- Отправка формы с подробным списком услуг в Telegram ---
 async function handleBookingSubmit(event) {
-  // Защита от ошибок event на мобильных устройствах
+  // 1. Отмена стандартной отправки HTML-формы
   if (event && typeof event.preventDefault === "function") {
     event.preventDefault();
   }
@@ -304,7 +304,7 @@ async function handleBookingSubmit(event) {
 
   let isValid = true;
 
-  // Валидация имени (не менее 2 символов)
+  // Валидация имени
   const nameValue = nameInput ? nameInput.value.trim() : "";
   if (nameValue.length < 2) {
     if (nameError) nameError.classList.remove("hidden");
@@ -313,8 +313,9 @@ async function handleBookingSubmit(event) {
     if (nameError) nameError.classList.add("hidden");
   }
 
-  // Валидация телефона (адаптировано для автозаполнения на мобайле)
-  let digitsOnly = phoneInput ? phoneInput.value.replace(/\D/g, "") : "";
+  // Валидация телефона
+  const rawPhone = phoneInput ? phoneInput.value.trim() : "";
+  let digitsOnly = rawPhone.replace(/\D/g, "");
   if (digitsOnly.length === 10) {
     digitsOnly = "7" + digitsOnly;
   }
@@ -328,120 +329,111 @@ async function handleBookingSubmit(event) {
 
   if (!isValid) return;
 
-  // Настройки Telegram API
-  const BOT_TOKEN = "8842734031:AAGdjjtfA3elq4f2NHmojkjSoRwAUAly15I";
-  const CHAT_ID = "5213680806";
+  // Данные и список услуг
+  const carType = typeof selectedCarType !== "undefined" ? selectedCarType : "Не выбран";
+  const serviceName = typeof selectedServiceName !== "undefined" ? selectedServiceName : "Консультация";
+  const carModel = carInput && carInput.value.trim() ? carInput.value.trim() : "Не указана";
 
-  // Формируем красивый список услуг
   let servicesDetails = "";
   if (typeof selectedServicesList !== "undefined" && selectedServicesList.length > 0) {
     servicesDetails = "\n📋 <b>Выбранные услуги в калькуляторе:</b>\n" + 
       selectedServicesList.map((service) => `  • ${service}`).join("\n");
   }
 
-  const carType = typeof selectedCarType !== "undefined" ? selectedCarType : "Не выбран";
-  const serviceName = typeof selectedServiceName !== "undefined" ? selectedServiceName : "Консультация";
-
-  // Формирование даты без потенциальных сбоев в мобильном Safari
   const now = new Date();
   const dateStr = `${now.getDate()}.${now.getMonth() + 1}.${now.getFullYear()} ${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}`;
 
-  const message = `
+  // Сообщение для Telegram (HTML)
+  const tgMessage = `
 🔥 <b>Новая заявка ArmorTech!</b>
 
 👤 <b>Имя:</b> ${nameValue}
-📞 <b>Телефон:</b> ${phoneInput ? phoneInput.value.trim() : ""}
-🚘 <b>Марка/Модель:</b> ${carInput && carInput.value.trim() ? carInput.value.trim() : "Не указана"}
+📞 <b>Телефон:</b> ${rawPhone}
+🚘 <b>Марка/Модель:</b> ${carModel}
 🚙 <b>Тип кузова:</b> ${carType}
 🛠 <b>Запрос/Смета:</b> ${serviceName}${servicesDetails}
 📅 <b>Дата:</b> ${dateStr}
   `;
 
   // Состояние загрузки кнопки
-  const originalText = submitBtn ? submitBtn.innerHTML : "";
+  const originalText = submitBtn ? submitBtn.innerHTML : "Подтвердить запись";
   if (submitBtn) {
     submitBtn.disabled = true;
     submitBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>Отправка...</span>`;
   }
 
+  // НАСТРОЙКИ (Заполните свои данные):
+  const BOT_TOKEN = "8842734031:AAGdjjtfA3elq4f2NHmojkjSoRwAUAly15I";
+  const CHAT_ID = "5213680806";
+const WORKER_URL = "https://gentle-surf-c060.pushkar-di.workers.dev";
+  const ADMIN_WHATSAPP = "79990000000"; // Номер телефона администратора для WhatsApp (без +)
+
+  let isSent = false;
+
+  // ==========================================
+  // ВАРИАНТ 1: Отправка через Cloudflare Worker
+  // ==========================================
   try {
-    const payloadData = {
-      chat_id: CHAT_ID,
-      text: message,
-      parse_mode: "HTML"
-    };
+    // Таймаут на 3.5 секунды: если воркер не ответит, перейдём к WhatsApp
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3500);
 
-    let isSuccess = false;
+    const response = await fetch(WORKER_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: BOT_TOKEN,
+        chat_id: CHAT_ID,
+        text: tgMessage
+      }),
+      signal: controller.signal
+    });
 
-    // 1. Прямой запрос
-    try {
-      const res1 = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payloadData)
-      });
-      if (res1 && res1.ok) isSuccess = true;
-    } catch (e) {
-      console.warn("Прямой запрос не прошел на смартфоне.");
-    }
+    clearTimeout(timeoutId);
 
-    // 2. Резервный прокси (allorigins — отлично обходит мобильные блокировки)
-    if (!isSuccess) {
-      try {
-        const targetUrl = encodeURIComponent(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`);
-        const res2 = await fetch(`https://api.allorigins.win/get?url=${targetUrl}&postData=${encodeURIComponent(JSON.stringify(payloadData))}`, {
-          method: "GET"
-        });
-        if (res2 && res2.ok) isSuccess = true;
-      } catch (e) {
-        console.warn("Прокси 1 (allorigins) не прошел.");
-      }
-    }
-
-    // 3. Дополнительный CORS-прокси
-    if (!isSuccess) {
-      try {
-        const res3 = await fetch("https://corsproxy.io/?" + encodeURIComponent(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payloadData)
-        });
-        if (res3 && res3.ok) isSuccess = true;
-      } catch (e) {
-        console.warn("Прокси 2 (corsproxy) не прошел.");
-      }
-    }
-
-    if (isSuccess) {
-      if (typeof closeBookingModal === "function") {
-        closeBookingModal();
-      }
-
-      // Показ уведомления об успехе
-      const toast = document.getElementById("successToast");
-      if (toast) {
-        toast.classList.remove("hidden");
-        setTimeout(() => {
-          toast.classList.add("hidden");
-        }, 4000);
-      }
-
-      const formElement = document.getElementById("bookingForm");
-      if (formElement) formElement.reset();
-
-      if (typeof selectedServicesList !== "undefined") {
-        selectedServicesList = [];
-      }
-    } else {
-      alert("Не удалось отправить заявку. Попробуйте еще раз или свяжитесь с нами по телефону.");
+    if (response.ok) {
+      isSent = true;
     }
   } catch (error) {
-    console.error("Ошибка при отправке в Telegram:", error);
-    alert("Произошла ошибка при отправке. Пожалуйста, свяжитесь с нами по телефону.");
-  } finally {
-    if (submitBtn) {
-      submitBtn.disabled = false;
-      submitBtn.innerHTML = originalText;
+    console.warn("Основной канал (Cloudflare Worker) недоступен. Запускаем WhatsApp Fallback...", error);
+  }
+
+  // Снимаем индикатор загрузки с кнопки
+  if (submitBtn) {
+    submitBtn.disabled = false;
+    submitBtn.innerHTML = originalText;
+  }
+
+  // ==========================================
+  // ОБРАБОТКА РЕЗУЛЬТАТА И ВАРИАНТ 2 (WhatsApp)
+  // ==========================================
+  if (isSent) {
+    // Успех через Вариант 1
+    if (typeof closeBookingModal === "function") closeBookingModal();
+
+    const toast = document.getElementById("successToast");
+    if (toast) {
+      toast.classList.remove("hidden");
+      setTimeout(() => toast.classList.add("hidden"), 4000);
     }
+
+    const formElement = document.getElementById("bookingForm");
+    if (formElement) formElement.reset();
+
+    if (typeof selectedServicesList !== "undefined") {
+      selectedServicesList = [];
+    }
+  } else {
+    // Неудача Варианта 1 -> Срабатывает ВАРИАНТ 2 (Перенаправление в WhatsApp)
+    const textWA = encodeURIComponent(
+      `Здравствуйте! Хочу записаться в ArmorTech.\n\n` +
+      `👤 Имя: ${nameValue}\n` +
+      `📞 Телефон: ${rawPhone}\n` +
+      `🚘 Авто: ${carModel}\n` +
+      `🛠 Услуга: ${serviceName}`
+    );
+
+    alert("Для гарантированной доставки заявки откроется WhatsApp.");
+    window.location.href = `https://wa.me/${ADMIN_WHATSAPP}?text=${textWA}`;
   }
 }
