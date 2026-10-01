@@ -290,75 +290,94 @@ function closeBookingModal() {
 
 // --- Отправка формы с подробным списком услуг в Telegram ---
 async function handleBookingSubmit(event) {
-  if (event && typeof event.preventDefault === "function") {
-    event.preventDefault();
-  }
-
-  const nameInput = document.getElementById("userNameInput");
-  const phoneInput = document.getElementById("userPhoneInput");
-  const carInput = document.getElementById("userCarInput");
-  const nameError = document.getElementById("nameError");
-  const phoneError = document.getElementById("phoneError");
-  const submitBtn = document.getElementById("submitBookingBtn");
-
-  let isValid = true;
-
-  // 1. Проверка имени
-  const nameValue = nameInput ? nameInput.value.trim() : "";
-  if (nameValue.length < 2) {
-    if (nameError) nameError.classList.remove("hidden");
-    isValid = false;
-  } else {
-    if (nameError) nameError.classList.add("hidden");
-  }
-
-  // 2. Проверка телефона (адаптация к автозаполнению на смартфонах)
-  let digitsOnly = phoneInput ? phoneInput.value.replace(/\D/g, "") : "";
-  if (digitsOnly.length === 10) {
-    digitsOnly = "7" + digitsOnly;
-  }
-
-  if (digitsOnly.length < 11) {
-    if (phoneError) phoneError.classList.remove("hidden");
-    isValid = false;
-  } else {
-    if (phoneError) phoneError.classList.add("hidden");
-  }
-
-  if (!isValid) return;
-
-  // Данные для отправки
-  const BOT_TOKEN = "8842734031:AAGdjjtfA3elq4f2NHmojkjSoRwAUAly15I";
-  const CHAT_ID = "5213680806";
-
-  let servicesDetails = "";
-  if (typeof selectedServicesList !== "undefined" && selectedServicesList.length > 0) {
-    servicesDetails = "\n📋 <b>Выбранные услуги в калькуляторе:</b>\n" + 
-      selectedServicesList.map((service) => `  • ${service}`).join("\n");
-  }
-
-  const carType = typeof selectedCarType !== "undefined" ? selectedCarType : "Не выбран";
-  const serviceName = typeof selectedServiceName !== "undefined" ? selectedServiceName : "Консультация";
-
-  const message = `
-🔥 <b>Новая заявка ArmorTech!</b>
-
-👤 <b>Имя:</b> ${nameValue}
-📞 <b>Телефон:</b> ${phoneInput.value.trim()}
-🚘 <b>Марка/Модель:</b> ${carInput && carInput.value.trim() ? carInput.value.trim() : "Не указана"}
-🚙 <b>Тип кузова:</b> ${carType}
-🛠 <b>Запрос/Смета:</b> ${serviceName}${servicesDetails}
-📅 <b>Дата:</b> ${new Date().toLocaleString("ru-RU")}
-  `;
-
-  // Индикация загрузки
-  const originalText = submitBtn ? submitBtn.innerHTML : "Подтвердить запись";
-  if (submitBtn) {
-    submitBtn.disabled = true;
-    submitBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>Отправка...</span>`;
+  // 1. Безопасная остановка отправки формы
+  if (event) {
+    if (typeof event.preventDefault === "function") event.preventDefault();
+    if (typeof event.stopPropagation === "function") event.stopPropagation();
   }
 
   try {
+    const nameInput = document.getElementById("userNameInput");
+    const phoneInput = document.getElementById("userPhoneInput");
+    const carInput = document.getElementById("userCarInput");
+    const nameError = document.getElementById("nameError");
+    const phoneError = document.getElementById("phoneError");
+    const submitBtn = document.getElementById("submitBookingBtn");
+
+    let isValid = true;
+
+    // Валидация имени
+    const nameValue = nameInput ? nameInput.value.trim() : "";
+    if (nameValue.length < 2) {
+      if (nameError) nameError.classList.remove("hidden");
+      isValid = false;
+    } else {
+      if (nameError) nameError.classList.add("hidden");
+    }
+
+    // Валидация телефона (безопасный разбор)
+    const rawPhone = phoneInput ? phoneInput.value : "";
+    let digitsOnly = rawPhone.replace(/\D/g, "");
+    
+    if (digitsOnly.length === 10) {
+      digitsOnly = "7" + digitsOnly;
+    }
+
+    if (digitsOnly.length < 11) {
+      if (phoneError) phoneError.classList.remove("hidden");
+      isValid = false;
+    } else {
+      if (phoneError) phoneError.classList.add("hidden");
+    }
+
+    // Если валидация не прошла — останавливаем
+    if (!isValid) return;
+
+    // Безопасное извлечение глобальных переменных (без падений ReferenceError)
+    const safeServices = (typeof selectedServicesList !== "undefined" && Array.isArray(selectedServicesList)) 
+      ? selectedServicesList 
+      : (window.selectedServicesList || []);
+
+    const safeCarType = (typeof selectedCarType !== "undefined") 
+      ? selectedCarType 
+      : (window.selectedCarType || "Не выбран");
+
+    const safeServiceName = (typeof selectedServiceName !== "undefined") 
+      ? selectedServiceName 
+      : (window.selectedServiceName || "Консультация");
+
+    // Формируем список услуг
+    let servicesDetails = "";
+    if (safeServices.length > 0) {
+      servicesDetails = "\n📋 <b>Выбранные услуги в калькуляторе:</b>\n" + 
+        safeServices.map((service) => `  • ${service}`).join("\n");
+    }
+
+    // Безопасная дата
+    const now = new Date();
+    const dateStr = `${now.getDate()}.${now.getMonth() + 1}.${now.getFullYear()} ${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+    const message = `
+🔥 <b>Новая заявка ArmorTech!</b>
+
+👤 <b>Имя:</b> ${nameValue}
+📞 <b>Телефон:</b> ${rawPhone}
+🚘 <b>Марка/Модель:</b> ${carInput && carInput.value.trim() ? carInput.value.trim() : "Не указана"}
+🚙 <b>Тип кузова:</b> ${safeCarType}
+🛠 <b>Запрос/Смета:</b> ${safeServiceName}${servicesDetails}
+📅 <b>Дата:</b> ${dateStr}
+    `;
+
+    // Анимация кнопки
+    const originalText = submitBtn ? submitBtn.innerHTML : "Подтвердить запись";
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = `<span>Отправка...</span>`;
+    }
+
+    const BOT_TOKEN = "8842734031:AAGdjjtfA3elq4f2NHmojkjSoRwAUAly15I";
+    const CHAT_ID = "5213680806";
+
     const payload = JSON.stringify({
       chat_id: CHAT_ID,
       text: message,
@@ -367,18 +386,18 @@ async function handleBookingSubmit(event) {
 
     let response = null;
 
-    // Попытка 1: Прямая отправка в Telegram
+    // 1. Прямой запрос
     try {
       response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: payload
       });
-    } catch (e) {
-      console.warn("Прямой запрос перехвачен защитой смартфона/оператора. Подключаем прокси...");
+    } catch (netErr) {
+      console.warn("Прямой fetch заблокирован на смартфоне.");
     }
 
-    // Попытка 2: Резервная отправка через CORS-прокси (для мобильного интернета и мобильных браузеров)
+    // 2. Прокси-запрос
     if (!response || !response.ok) {
       const proxyUrl = "https://corsproxy.io/?" + encodeURIComponent(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`);
       response = await fetch(proxyUrl, {
@@ -388,33 +407,31 @@ async function handleBookingSubmit(event) {
       });
     }
 
-    if (response && response.ok) {
-      closeBookingModal();
-
-      const toast = document.getElementById("successToast");
-      if (toast) {
-        toast.classList.remove("hidden");
-        setTimeout(() => {
-          toast.classList.add("hidden");
-        }, 4000);
-      }
-
-      const formElement = document.getElementById("bookingForm");
-      if (formElement) formElement.reset();
-      
-      if (typeof selectedServicesList !== "undefined") {
-        selectedServicesList = [];
-      }
-    } else {
-      alert("Не удалось отправить заявку. Свяжитесь с нами по телефону.");
-    }
-  } catch (error) {
-    console.error("Ошибка при отправке:", error);
-    alert("Произошла ошибка сети. Попробуйте еще раз.");
-  } finally {
     if (submitBtn) {
       submitBtn.disabled = false;
       submitBtn.innerHTML = originalText;
     }
+
+    if (response && response.ok) {
+      if (typeof closeBookingModal === "function") closeBookingModal();
+
+      const toast = document.getElementById("successToast");
+      if (toast) {
+        toast.classList.remove("hidden");
+        setTimeout(() => toast.classList.add("hidden"), 4000);
+      }
+
+      const formElement = document.getElementById("bookingForm");
+      if (formElement) formElement.reset();
+    } else {
+      alert("Ошибка отправки в Telegram. Свяжитесь с нами по телефону.");
+    }
+
+  } catch (criticalError) {
+    // Выводим точную причину ошибки прямо на экран телефона
+    alert("Ошибка на телефоне: " + criticalError.message);
+    
+    const submitBtn = document.getElementById("submitBookingBtn");
+    if (submitBtn) submitBtn.disabled = false;
   }
 }
